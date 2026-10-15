@@ -83,7 +83,7 @@ class MLSZJovobeniFetcher:
         print(f"\n[INFO] Siker! Talált mérkőzések száma a megadott idősávban: {len(all_filtered_matches)}")
         return all_filtered_matches
 
-    def save_to_json(self, matches, filename="jovobeni_meccsek_10_1530.json"):
+    def save_to_json(self, matches, filename="matches.json"):
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(matches, f, ensure_ascii=False, indent=4)
         print(f"[OK] Mentve ide: {filename}")

@@ -26,26 +26,29 @@ class MLSZJovobeniFetcher:
         except ValueError:
             return False
 
-    def clean_team_names(self, text, found_time):
-        """Eltávolítja a felesleges szavakat, de megőrzi a csapatneveket."""
-        unwanted_words = [
+    def clean_row_text(self, text, found_time):
+        """Eltávolítja a státuszt (jegyzőkönyv részleges), a fordulót, dátumot és az időpontot."""
+        
+        # 1. Levágjuk a sort ott, ahol a "jegyzőkönyv" szó kezdődik (ez tünteti el a státusz oszlopot)
+        if "jegyzőkönyv" in text.lower():
+            text = text.lower().split("jegyzőkönyv")[0]
+
+        # 2. További felesleges kifejezések kiszűrése
+        unwanted_patterns = [
             r"mérkőzés",
             r"forduló",
             r"ford\.",
             r"dátum",
             r"státusz",
-            r"jegyzőkönyv",
-            r"részleges",
-            r"részletek",
             r"\d{4}\.\d{2}\.\d{2}", # Dátumok
             re.escape(found_time)   # Időpont
         ]
         
         cleaned = text
-        for pattern in unwanted_words:
+        for pattern in unwanted_patterns:
             cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
         
-        # Többszörös szóközök, felesleges elválasztók rendezése
+        # 3. Formázás és felesleges karakterek/szóközök eltávolítása
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
         cleaned = re.sub(r'^[\-\|\s]+|[\-\|\s]+$', '', cleaned)
         return cleaned
@@ -68,8 +71,6 @@ class MLSZJovobeniFetcher:
                     continue
 
                 soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # Robusztus keresés: Minden lehetséges sor/blokk átvizsgálása, mint korábban a 96 találatnál
                 rows = soup.find_all(['tr', 'div', 'li'])
 
                 for row in rows:
@@ -82,9 +83,8 @@ class MLSZJovobeniFetcher:
                     found_time = time_match.group(1)
 
                     if self.is_time_in_range(found_time):
-                        cleaned_txt = self.clean_team_names(row_text, found_time)
+                        cleaned_txt = self.clean_row_text(row_text, found_time)
                         
-                        # Ha a tisztítás után maradt használható szöveg (csapatnevek)
                         if len(cleaned_txt) > 2:
                             match_data = {
                                 "szervezet": szervezet_id,
@@ -94,7 +94,6 @@ class MLSZJovobeniFetcher:
                                 "nyers_szöveg": cleaned_txt[:120]
                             }
                             
-                            # Duplikációk szűrése
                             if match_data not in all_filtered_matches:
                                 all_filtered_matches.append(match_data)
 
@@ -103,7 +102,7 @@ class MLSZJovobeniFetcher:
 
             time_module.sleep(0.2)
 
-        # Időrendi sorrendbe rendezés: legkorábbitól a legkésőbbig
+        # Időrendi sorrendbe rendezés
         all_filtered_matches.sort(key=lambda x: x["idopont"])
 
         print(f"\n[INFO] Siker! Talált mérkőzések száma időrendbe rendezve: {len(all_filtered_matches)}")

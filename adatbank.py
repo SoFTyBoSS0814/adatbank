@@ -27,26 +27,44 @@ class MLSZJovobeniFetcher:
             return False
 
     def clean_row_text(self, text, found_time):
-        """Levágja a sor végéről a státuszt, jegyzőkönyvet, dátumot és időpontot, hogy csak a csapatok maradjanak."""
-        # 1. Levágás ott, ahol a 'jegyzőkönyv' kezdődik
+        """Kiszűri a sallangokat és egységesíti a csapatnevek közötti elválasztást."""
+        # Oldalmenü / fejléc szűrés
+        if any(w in text.lower() for w in ["összes", "jelenleg futó", "bács-kiskun", "baranya", "békés"]):
+            return ""
+
+        # 1. Levágás a 'jegyzőkönyv'-nél
         if "jegyzőkönyv" in text.lower():
             text = text.lower().split("jegyzőkönyv")[0]
             
-        # 2. Levágás az időpontnál, hogy a hátralévő dátum/státusz eltűnjön
+        # 2. Levágás az időpontnál
         if found_time in text:
             text = text.split(found_time)[0]
 
         # 3. Dátumok és felesleges szavak törlése
         text = re.sub(r'\d{4}\.\d{2}\.\d{2}.*', '', text)
         
-        unwanted_words = ["mérkőzés", "forduló", "ford\.", "dátum", "státusz"]
+        unwanted_words = ["mérkőzés", "forduló", "ford\\.", "dátum", "státusz"]
         for word in unwanted_words:
             text = re.sub(word, "", text, flags=re.IGNORECASE)
 
-        # 4. Végső formázás (szóközök, záró fordulószám vagy kötőjelek takarítása)
+        # 4. KÖTŐJELEK EGYSÉGESÍTÉSE: Mindenféle többszörös kötőjelet, elválasztót sima " - "-ra cserélünk
+        text = re.sub(r'[\s\-\|\–\—]+', ' ', text).strip()
+        
+        # Ha maradtak kulcsszavak vagy szóköz-problémák, rendezzük
         cleaned = re.sub(r'\s+', ' ', text).strip()
         cleaned = re.sub(r'\s+\d{1,2}$', '', cleaned).strip() # Esetleges fordulószám a végén
-        cleaned = re.sub(r'^[\-\|\s]+|[\-\|\s]+$', '', cleaned)
+        
+        # Ha a split/tisztítás után több darabra esett szét, illesszük össze pontosan egy kötőjellel
+        parts = [p for p in cleaned.split() if p]
+        if len(parts) >= 2:
+            # Megpróbáljuk észszerűen kettéválasztani a hazai és vendég csapatot a közepénél
+            mid = len(parts) // 2
+            hazai = " ".join(parts[:mid])
+            vendeg = " ".join(parts[mid:])
+            cleaned = f"{hazai} - {vendeg}"
+        else:
+            cleaned = " ".join(parts)
+
         return cleaned
 
     def fetch_all_organizations(self):
@@ -81,7 +99,7 @@ class MLSZJovobeniFetcher:
                     if self.is_time_in_range(found_time):
                         cleaned_txt = self.clean_row_text(row_text, found_time)
                         
-                        if len(cleaned_txt) > 2:
+                        if len(cleaned_txt) > 3:
                             match_data = {
                                 "szervezet": szervezet_id,
                                 "statusz": "jovobeni",

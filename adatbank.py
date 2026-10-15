@@ -26,8 +26,9 @@ class MLSZJovobeniFetcher:
         except ValueError:
             return False
 
-    def clean_text(self, text, found_time):
-        """Kiszűri a felesleges, nem kívánt kifejezéseket és az időpontot a nyers szövegből."""
+    def clean_team_names(self, text, found_time):
+        """Eltávolítja az összes felesleges kifejezést, időpontot, hogy csak a csapatok maradjanak."""
+        # Nem kívánt szavak és minták listája
         unwanted_patterns = [
             r"mérkőzés",
             r"forduló",
@@ -36,17 +37,18 @@ class MLSZJovobeniFetcher:
             r"státusz",
             r"jegyzőkönyv",
             r"részleges",
-            r"\d{4}\.\d{2}\.\d{2}", # Dátumok kiszűrése
-            re.escape(found_time)   # Maga az időpont is kikerül a szövegből
+            r"részletek",
+            r"\d{4}\.\d{2}\.\d{2}", # Dátumok
+            re.escape(found_time)   # Időpont
         ]
         
         cleaned = text
         for pattern in unwanted_patterns:
             cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
         
-        # Többszörös szóközök és felesleges karakterek rendezése
+        # Speciális karakterek, kötőjelek tisztítása a szélekről, de a csapatok közötti elválasztó maradhat
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-        cleaned = re.sub(r'^[\-\|\s]+|[\-\|\s]+$', '', cleaned) # Vezető/záró kötőjelek törlése
+        cleaned = re.sub(r'^[\-\|\s]+|[\-\|\s]+$', '', cleaned)
         return cleaned
 
     def fetch_all_organizations(self):
@@ -67,10 +69,14 @@ class MLSZJovobeniFetcher:
                     continue
 
                 soup = BeautifulSoup(response.text, 'html.parser')
-                rows = soup.find_all(['tr', 'div', 'li'])
+                
+                # Megkeressük a meccs-sorokat vagy a teamswrapper/táblázat elemeket
+                rows = soup.find_all(['tr', 'div'], class_=re.compile('match|row|item|sorsolas|teamswrapper|elem', re.I))
+                if not rows:
+                    rows = soup.find_all('tr')
 
                 for row in rows:
-                    row_text = row.get_text(separator=' ', strip=True)
+                    row_text = row.get_text(separator=' - ', strip=True)
                     
                     time_match = time_pattern.search(row_text)
                     if not time_match:
@@ -79,15 +85,19 @@ class MLSZJovobeniFetcher:
                     found_time = time_match.group(1)
 
                     if self.is_time_in_range(found_time):
-                        # Átadjuk a talált időpontot is a tisztítónak, hogy azt is kigyomlálja
-                        cleaned_txt = self.clean_text(row_text, found_time)
+                        # Megtisztítjuk a szöveget
+                        cleaned_txt = self.clean_team_names(row_text, found_time)
+                        
+                        # Ha túl rövid vagy üres maradt, kihagyjuk
+                        if len(cleaned_txt) < 3:
+                            continue
 
                         match_data = {
                             "szervezet": szervezet_id,
                             "statusz": "jovobeni",
                             "datum": self.target_date,
                             "idopont": found_time,
-                            "nyers_szöveg": cleaned_txt[:120]
+                            "nyers_szöveg": cleaned_txt[:100]
                         }
                         
                         if match_data not in all_filtered_matches:
@@ -98,7 +108,7 @@ class MLSZJovobeniFetcher:
 
             time_module.sleep(0.2)
 
-        # IDŐRENDI SORRENDBE RENDEZÉS: az 'idopont' alapján növekvő sorrendbe
+        # Időrendi rendezés a kezdési időpont szerint
         all_filtered_matches.sort(key=lambda x: x["idopont"])
 
         print(f"\n[INFO] Siker! Talált mérkőzések száma időrendbe rendezve: {len(all_filtered_matches)}")

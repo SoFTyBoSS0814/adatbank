@@ -26,36 +26,26 @@ class MLSZJovobeniFetcher:
         except ValueError:
             return False
 
-    def extract_teams_from_row(self, row, found_time):
-        """Cellánként vizsgálja a sort, és kiszűri a státuszt, időpontot, dátumot és fordulót."""
-        tds = row.find_all('td')
-        if not tds:
-            # Ha nincsenek <td> elemek, fallback a sima szövegre, de kiszűrve a jegyzőkönyvet
-            row_text = row.get_text(separator=' - ', strip=True)
-            if "jegyzőkönyv" in row_text.lower():
-                row_text = row_text.lower().split("jegyzőkönyv")[0]
-            return row_text
-
-        valid_texts = []
-        for td in tds:
-            td_text = td.get_text(separator=' ', strip=True)
+    def clean_row_text(self, text, found_time):
+        """Levágja a sor végéről a státuszt, jegyzőkönyvet, dátumot és időpontot, hogy csak a csapatok maradjanak."""
+        # 1. Levágás ott, ahol a 'jegyzőkönyv' kezdődik
+        if "jegyzőkönyv" in text.lower():
+            text = text.lower().split("jegyzőkönyv")[0]
             
-            # Kihagyjuk az üres, státusz, dátum, időpont vagy fordulószám cellákat
-            if not td_text:
-                continue
-            if 'jegyzőkönyv' in td_text.lower() or 'részleges' in td_text.lower() or 'státusz' in td_text.lower():
-                continue
-            if re.search(r'\d{4}\.\d{2}\.\d{2}', td_text) or found_time in td_text:
-                continue
-            # Kihagyjuk a meccs közbeni dobozokat (pl. piros - mező) vagy kis számokat (forduló)
-            if td_text in ['-', '--', 'v', 'h', 'gy'] or (td_text.isdigit() and len(td_text) <= 2):
-                continue
-                
-            valid_texts.append(td_text)
+        # 2. Levágás az időpontnál, hogy a hátralévő dátum/státusz eltűnjön
+        if found_time in text:
+            text = text.split(found_time)[0]
 
-        # Összeillesztjük a megmaradt cellákat (csapatnevek)
-        cleaned = " - ".join(valid_texts)
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        # 3. Dátumok és felesleges szavak törlése
+        text = re.sub(r'\d{4}\.\d{2}\.\d{2}.*', '', text)
+        
+        unwanted_words = ["mérkőzés", "forduló", "ford\.", "dátum", "státusz"]
+        for word in unwanted_words:
+            text = re.sub(word, "", text, flags=re.IGNORECASE)
+
+        # 4. Végső formázás (szóközök, záró fordulószám vagy kötőjelek takarítása)
+        cleaned = re.sub(r'\s+', ' ', text).strip()
+        cleaned = re.sub(r'\s+\d{1,2}$', '', cleaned).strip() # Esetleges fordulószám a végén
         cleaned = re.sub(r'^[\-\|\s]+|[\-\|\s]+$', '', cleaned)
         return cleaned
 
@@ -77,12 +67,10 @@ class MLSZJovobeniFetcher:
                     continue
 
                 soup = BeautifulSoup(response.text, 'html.parser')
-                rows = soup.find_all(['tr', 'div'], class_=re.compile('match|row|item|sorsolas|elem', re.I))
-                if not rows:
-                    rows = soup.find_all('tr')
+                rows = soup.find_all(['tr', 'div', 'li'])
 
                 for row in rows:
-                    row_text = row.get_text(separator=' ', strip=True)
+                    row_text = row.get_text(separator=' - ', strip=True)
                     
                     time_match = time_pattern.search(row_text)
                     if not time_match:
@@ -91,16 +79,15 @@ class MLSZJovobeniFetcher:
                     found_time = time_match.group(1)
 
                     if self.is_time_in_range(found_time):
-                        # Kinyerjük kizárólag a csapatokat a cellákból
-                        team_names = self.extract_teams_from_row(row, found_time)
+                        cleaned_txt = self.clean_row_text(row_text, found_time)
                         
-                        if len(team_names) > 3:
+                        if len(cleaned_txt) > 2:
                             match_data = {
                                 "szervezet": szervezet_id,
                                 "statusz": "jovobeni",
                                 "datum": self.target_date,
                                 "idopont": found_time,
-                                "nyers_szöveg": team_names[:120]
+                                "nyers_szöveg": cleaned_txt[:120]
                             }
                             
                             if match_data not in all_filtered_matches:

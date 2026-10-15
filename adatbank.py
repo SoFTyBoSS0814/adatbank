@@ -26,22 +26,27 @@ class MLSZJovobeniFetcher:
         except ValueError:
             return False
 
-    def clean_text(self, text):
-        """Kiszűri a felesleges, nem kívánt kifejezéseket a nyers szövegből."""
+    def clean_text(self, text, found_time):
+        """Kiszűri a felesleges, nem kívánt kifejezéseket és az időpontot a nyers szövegből."""
         unwanted_patterns = [
             r"mérkőzés",
             r"forduló",
+            r"ford\.",
+            r"dátum",
+            r"státusz",
             r"jegyzőkönyv",
             r"részleges",
-            r"\d{4}\.\d{2}\.\d{2}" # Dátumok kiszűrése a szövegből, mivel külön mezőben van
+            r"\d{4}\.\d{2}\.\d{2}", # Dátumok kiszűrése
+            re.escape(found_time)   # Maga az időpont is kikerül a szövegből
         ]
         
         cleaned = text
         for pattern in unwanted_patterns:
             cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
         
-        # Többszörös szóközök rendezése
+        # Többszörös szóközök és felesleges karakterek rendezése
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        cleaned = re.sub(r'^[\-\|\s]+|[\-\|\s]+$', '', cleaned) # Vezető/záró kötőjelek törlése
         return cleaned
 
     def fetch_all_organizations(self):
@@ -74,8 +79,8 @@ class MLSZJovobeniFetcher:
                     found_time = time_match.group(1)
 
                     if self.is_time_in_range(found_time):
-                        # Megtisztítjuk a szöveget a felesleges szavaktól
-                        cleaned_txt = self.clean_text(row_text)
+                        # Átadjuk a talált időpontot is a tisztítónak, hogy azt is kigyomlálja
+                        cleaned_txt = self.clean_text(row_text, found_time)
 
                         match_data = {
                             "szervezet": szervezet_id,

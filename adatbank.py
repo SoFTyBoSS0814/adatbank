@@ -28,7 +28,6 @@ class MLSZJovobeniFetcher:
 
     def fetch_all_organizations(self):
         all_filtered_matches = []
-        # Rugalmasabb keresés: bármiben benne lehet a HH:MM formátumú időpont
         time_pattern = re.compile(r'\b(\d{2}:\d{2})\b')
 
         for szervezet_id in range(0, 21):
@@ -45,33 +44,27 @@ class MLSZJovobeniFetcher:
                     continue
 
                 soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # Megkeressük az összes táblázatsort vagy meccset tartalmazó elemet
                 rows = soup.find_all(['tr', 'div', 'li'])
 
                 for row in rows:
                     row_text = row.get_text(separator=' ', strip=True)
                     
-                    # Megkeressük az időpontot a sor szövegében
                     time_match = time_pattern.search(row_text)
                     if not time_match:
                         continue
                     
                     found_time = time_match.group(1)
 
-                    # Ellenőrizzük, hogy a 10:00 - 15:30 idősávba esik-e
                     if self.is_time_in_range(found_time):
-                        # Megpróbáljuk kinyerni a sor többi részét (csapatnevek, stb.)
-                        parts = [p.strip() for p in row_text.split() if p.strip()]
-                        
                         match_data = {
                             "szervezet": szervezet_id,
                             "statusz": "jovobeni",
                             "datum": self.target_date,
                             "idopont": found_time,
-                            "nyers_szöveg": row_text[:100] # Elmentjük a nyers szöveget ellenőrzésre
+                            "nyers_szöveg": row_text[:120]
                         }
                         
+                        # Elkerüljük a duplikációkat ugyanazon szervezet/időpont kombinációnál
                         if match_data not in all_filtered_matches:
                             all_filtered_matches.append(match_data)
 
@@ -80,7 +73,10 @@ class MLSZJovobeniFetcher:
 
             time_module.sleep(0.2)
 
-        print(f"\n[INFO] Siker! Talált mérkőzések száma a megadott idősávban: {len(all_filtered_matches)}")
+        # IDŐRENDI SORRENDBE RENDEZÉS: az 'idopont' mező alapján legkorábbitól legkésőbbig
+        all_filtered_matches.sort(key=lambda x: x["idopont"])
+
+        print(f"\n[INFO] Siker! Talált mérkőzések száma időrendbe rendezve: {len(all_filtered_matches)}")
         return all_filtered_matches
 
     def save_to_json(self, matches, filename="matches.json"):

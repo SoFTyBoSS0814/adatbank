@@ -26,6 +26,24 @@ class MLSZJovobeniFetcher:
         except ValueError:
             return False
 
+    def clean_text(self, text):
+        """Kiszűri a felesleges, nem kívánt kifejezéseket a nyers szövegből."""
+        unwanted_patterns = [
+            r"mérkőzés",
+            r"forduló",
+            r"jegyzőkönyv",
+            r"részleges",
+            r"\d{4}\.\d{2}\.\d{2}" # Dátumok kiszűrése a szövegből, mivel külön mezőben van
+        ]
+        
+        cleaned = text
+        for pattern in unwanted_patterns:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+        
+        # Többszörös szóközök rendezése
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        return cleaned
+
     def fetch_all_organizations(self):
         all_filtered_matches = []
         time_pattern = re.compile(r'\b(\d{2}:\d{2})\b')
@@ -56,15 +74,17 @@ class MLSZJovobeniFetcher:
                     found_time = time_match.group(1)
 
                     if self.is_time_in_range(found_time):
+                        # Megtisztítjuk a szöveget a felesleges szavaktól
+                        cleaned_txt = self.clean_text(row_text)
+
                         match_data = {
                             "szervezet": szervezet_id,
                             "statusz": "jovobeni",
                             "datum": self.target_date,
                             "idopont": found_time,
-                            "nyers_szöveg": row_text[:120]
+                            "nyers_szöveg": cleaned_txt[:120]
                         }
                         
-                        # Elkerüljük a duplikációkat ugyanazon szervezet/időpont kombinációnál
                         if match_data not in all_filtered_matches:
                             all_filtered_matches.append(match_data)
 
@@ -73,7 +93,7 @@ class MLSZJovobeniFetcher:
 
             time_module.sleep(0.2)
 
-        # IDŐRENDI SORRENDBE RENDEZÉS: az 'idopont' mező alapján legkorábbitól legkésőbbig
+        # IDŐRENDI SORRENDBE RENDEZÉS: az 'idopont' alapján növekvő sorrendbe
         all_filtered_matches.sort(key=lambda x: x["idopont"])
 
         print(f"\n[INFO] Siker! Talált mérkőzések száma időrendbe rendezve: {len(all_filtered_matches)}")
